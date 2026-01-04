@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手搖飲紀錄 - 靈活同步與備份版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'drink-tracker-pro';
+
+        window.fb = { auth, db, appId, provider, signInWithPopup, signOut, onAuthStateChanged, doc, setDoc, onSnapshot, getDoc };
+    </script>
+    <style id="themeStyles">
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        :root { 
+            --primary-color: #00897b; 
+            --primary-hover: #00695c; 
+            --primary-light: #e0f2f1; 
+            --primary-soft: #f0f9fa; 
+            --primary-dark: #004d40; 
+        }
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--primary-soft); color: #2c3e50; transition: background-color 0.4s ease; }
+        
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .day-cell { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 12px; transition: 0.2s; position: relative; font-weight: 500; }
+        .day-cell:hover { background-color: var(--primary-light); }
+        .day-cell.active { background-color: var(--primary-color); color: white; font-weight: 900; }
+        .day-cell.has-data::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background-color: var(--primary-color); border-radius: 50%; }
+        .day-cell.active.has-data::after { background-color: white; }
+
+        .nav-link { cursor: pointer; padding: 8px 16px; font-weight: 700; color: #94a3b8; transition: 0.3s; border-radius: 12px; }
+        .nav-link.active { color: var(--primary-color); background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+
+        .stat-card { background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%); color: white; border-radius: 2rem; }
+        .theme-dot { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: 0.2s; }
+        .theme-dot.active { transform: scale(1.1); box-shadow: 0 0 0 2px var(--primary-color); }
+        
+        .theme-text-primary { color: var(--primary-color); }
+        .bg-primary { background-color: var(--primary-color); }
+
+        .sync-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 900; }
+        .badge-local { background: #f1f5f9; color: #64748b; }
+        .badge-cloud { background: #dcfce7; color: #166534; }
+    </style>
+</head>
+<body class="text-slate-700 min-h-screen pb-12">
+
+    <!-- 頂部導航 -->
+    <nav class="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100 px-4 md:px-8 py-3 flex justify-between items-center shadow-sm">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl">🥤</span>
+            <div class="flex flex-col">
+                <span class="font-black theme-text-primary text-base leading-none">DrinkLog</span>
+                <span id="syncStatusBadge" class="mt-1 sync-badge badge-local w-fit uppercase">Local Mode</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 bg-gray-100/50 p-1 rounded-2xl">
+            <div onclick="switchPage('records')" id="nav-records" class="nav-link active text-sm">紀錄</div>
+            <div onclick="switchPage('settings')" id="nav-settings" class="nav-link text-sm">設定</div>
+        </div>
+    </nav>
+
+    <div class="max-w-6xl mx-auto p-4 md:p-8">
+        
+        <!-- 紀錄頁面 -->
+        <div id="page-records" class="space-y-8">
+            <header class="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div class="text-center md:text-left">
+                    <p id="selectedDateDisplay" class="text-4xl font-black text-slate-800 tracking-tight">2026/01/01</p>
+                    <div class="flex gap-4 mt-1 justify-center md:justify-start">
+                        <p class="text-gray-400 font-bold text-sm">月累計 <span id="monthTotal" class="theme-text-primary">$0</span></p>
+                        <p class="text-gray-400 font-bold text-sm">數量 <span id="monthCount" class="theme-text-primary">0杯</span></p>
+                    </div>
+                </div>
+                <button id="addRecordBtn" class="w-full md:w-auto bg-primary hover:opacity-90 text-white px-10 py-4 rounded-3xl font-black shadow-xl transition-all active:scale-95">
+                    + 新增紀錄
+                </button>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <!-- 日曆 -->
+                <div class="lg:col-span-4">
+                    <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-center mb-6">
+                            <button onclick="changeMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 theme-text-primary font-bold">＜</button>
+                            <h2 id="currentMonthDisplay" class="text-sm font-black text-slate-800">2026年 1月</h2>
+                            <button onclick="changeMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 theme-text-primary font-bold">＞</button>
+                        </div>
+                        <div class="calendar-grid text-center text-[10px] font-black text-gray-300 mb-2 uppercase tracking-widest">
+                            <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+                        </div>
+                        <div id="calendarDays" class="calendar-grid text-sm"></div>
+                    </div>
+                </div>
+
+                <!-- 列表 -->
+                <div class="lg:col-span-8">
+                    <div id="recordList" class="space-y-4"></div>
+                    <div id="emptyState" class="hidden text-center py-24 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 text-gray-300 font-bold">
+                        今日還沒喝手搖飲喔 🧊
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 設定與統計頁面 -->
+        <div id="page-settings" class="hidden space-y-8">
+            <h2 class="text-3xl font-black text-slate-800">統計與設定</h2>
+
+            <!-- 年度統計 -->
+            <div class="stat-card p-8 shadow-2xl">
+                <div class="flex justify-between items-center mb-10">
+                    <h3 class="text-xl font-black">年度數據摘要</h3>
+                    <select id="yearStatsSelector" onchange="updateYearlyStats(this.value)" class="bg-white/20 border border-white/20 rounded-lg text-white px-3 py-1 text-sm outline-none font-bold">
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white/10 p-6 rounded-3xl backdrop-blur-sm">
+                        <span class="block text-white/60 text-xs font-black mb-1">年度支出</span>
+                        <span id="yearTotalDisplay" class="text-3xl font-black">$0</span>
+                    </div>
+                    <div class="bg-white/10 p-6 rounded-3xl backdrop-blur-sm">
+                        <span class="block text-white/60 text-xs font-black mb-1">年度杯數</span>
+                        <span id="yearCountDisplay" class="text-3xl font-black">0杯</span>
+                    </div>
+                    <div class="bg-white/10 p-6 rounded-3xl backdrop-blur-sm">
+                        <span class="block text-white/60 text-xs font-black mb-1">月平均</span>
+                        <span id="yearAvgDisplay" class="text-3xl font-black">$0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- 帳號與同步 -->
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-black text-lg mb-2">☁️ 雲端備份與同步</h3>
+                        <p class="text-sm text-gray-400 mb-6">登入 Google 帳號後，資料將自動同步至雲端。</p>
+                        <div id="loginSection">
+                            <button onclick="loginWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 py-4 rounded-2xl font-bold shadow-sm hover:bg-gray-50 transition active:scale-95">
+                                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18">
+                                連結 Google 帳號
+                            </button>
+                        </div>
+                        <div id="userInfoSection" class="hidden space-y-4">
+                            <div class="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                <img id="userAvatar" src="" class="w-12 h-12 rounded-full border-2 border-white shadow-sm">
+                                <div class="flex flex-col">
+                                    <span id="userName" class="font-black text-slate-800"></span>
+                                    <span id="userEmail" class="text-xs text-slate-400 font-mono"></span>
+                                </div>
+                            </div>
+                            <button onclick="logout()" class="w-full bg-red-50 text-red-500 py-3 rounded-xl font-bold text-xs hover:bg-red-100 transition">登出帳號</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 匯出與匯入 -->
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+                    <h3 class="font-black text-lg mb-4">💾 資料備份與工具</h3>
+                    <div class="space-y-3">
+                        <button onclick="exportToExcel()" class="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 py-4 rounded-2xl font-bold text-sm hover:bg-emerald-100 transition">
+                            📊 匯出 Excel (CSV) 檔案
+                        </button>
+                        <div class="relative">
+                            <input type="file" id="importInput" accept=".csv" class="hidden" onchange="importFromCSV(event)">
+                            <button onclick="document.getElementById('importInput').click()" class="w-full flex items-center justify-center gap-2 bg-blue-50 text-blue-600 py-4 rounded-2xl font-bold text-sm hover:bg-blue-100 transition">
+                                📥 匯入備份資料 (.csv)
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-gray-400 text-center font-medium">支援智慧合併，資料不會被覆蓋</p>
+                    </div>
+                </div>
+
+                <!-- 主題顏色 -->
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 md:col-span-2 space-y-6">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <h3 class="font-black text-lg">🎨 介面主題顏色</h3>
+                        <div class="flex flex-wrap gap-3" id="themeSelector">
+                            <div onclick="setTheme('teal')" class="theme-dot bg-[#00897b]" data-theme="teal" title="湖水綠"></div>
+                            <div onclick="setTheme('red')" class="theme-dot bg-[#e53935]" data-theme="red" title="熱情紅"></div>
+                            <div onclick="setTheme('yellow')" class="theme-dot bg-[#fbc02d]" data-theme="yellow" title="活力黃"></div>
+                            <div onclick="setTheme('gray')" class="theme-dot bg-[#455a64]" data-theme="gray" title="極簡灰"></div>
+                            <div onclick="setTheme('indigo')" class="theme-dot bg-[#3f51b5]" data-theme="indigo" title="靛青藍"></div>
+                            <div onclick="setTheme('purple')" class="theme-dot bg-[#7b1fa2]" data-theme="purple" title="神秘紫"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-slate-50 p-4 md:p-6 rounded-3xl border border-slate-100">
+                        <div class="flex flex-col md:flex-row md:items-center gap-4">
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">自定義 HEX 色碼</label>
+                            <div class="flex flex-grow gap-2">
+                                <input type="text" id="customColorInput" placeholder="#00897B" class="flex-grow p-3 rounded-xl border border-slate-200 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition">
+                                <button onclick="applyCustomColor()" class="bg-slate-800 text-white px-6 py-3 rounded-xl text-sm font-black shadow-lg transition hover:bg-slate-700 active:scale-95 whitespace-nowrap">套用</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 全域狀態
+        let user = null;
+        let dbData = JSON.parse(localStorage.getItem('drinkApp_v3_records')) || {};
+        let currentYear = new Date().getFullYear();
+        let currentMonth = new Date().getMonth();
+        let selectedDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+        let statYear = currentYear;
+
+        const themes = {
+            teal: { primary: '#00897b', hover: '#00695c', light: '#e0f2f1', soft: '#f0f9fa', dark: '#004d40' },
+            red: { primary: '#e53935', hover: '#c62828', light: '#ffebee', soft: '#fffafa', dark: '#b71c1c' },
+            yellow: { primary: '#fbc02d', hover: '#f9a825', light: '#fffde7', soft: '#fffef0', dark: '#f57f17' },
+            gray: { primary: '#455a64', hover: '#37474f', light: '#eceff1', soft: '#f8f9fa', dark: '#263238' },
+            indigo: { primary: '#3f51b5', hover: '#303f9f', light: '#e8eaf6', soft: '#f5f7ff', dark: '#1a237e' },
+            purple: { primary: '#7b1fa2', hover: '#6a1b9a', light: '#f3e5f5', soft: '#faf5fb', dark: '#4a148c' }
+        };
+
+        // --- Firebase 邏輯 ---
+        window.loginWithGoogle = async () => {
+            try {
+                const result = await fb.signInWithPopup(fb.auth, fb.provider);
+                await mergeDataOnLogin(result.user.uid);
+            } catch (error) {
+                alert("登入失敗：" + error.message);
+            }
+        };
+
+        window.logout = () => fb.signOut(fb.auth);
+
+        fb.onAuthStateChanged(fb.auth, (u) => {
+            const badge = document.getElementById('syncStatusBadge');
+            const loginSec = document.getElementById('loginSection');
+            const infoSec = document.getElementById('userInfoSection');
+
+            if (u) {
+                user = u;
+                badge.innerText = "Cloud Sync Active";
+                badge.className = "mt-1 sync-badge badge-cloud w-fit uppercase";
+                loginSec.classList.add('hidden');
+                infoSec.classList.remove('hidden');
+                document.getElementById('userName').innerText = u.displayName;
+                document.getElementById('userEmail').innerText = u.email;
+                document.getElementById('userAvatar').src = u.photoURL;
+
+                const dataRef = fb.doc(fb.db, 'artifacts', fb.appId, 'users', user.uid, 'records');
+                fb.onSnapshot(dataRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                        dbData = snapshot.data().records || {};
+                        localStorage.setItem('drinkApp_v3_records', JSON.stringify(dbData));
+                        renderAll();
+                    } else {
+                        syncToCloud();
+                    }
+                });
+            } else {
+                user = null;
+                badge.innerText = "Local Mode";
+                badge.className = "mt-1 sync-badge badge-local w-fit uppercase";
+                loginSec.classList.remove('hidden');
+                infoSec.classList.add('hidden');
+            }
+        });
+
+        const syncToCloud = async () => {
+            localStorage.setItem('drinkApp_v3_records', JSON.stringify(dbData));
+            if (!user) return;
+            const dataRef = fb.doc(fb.db, 'artifacts', fb.appId, 'users', user.uid, 'records');
+            await fb.setDoc(dataRef, { records: dbData, lastUpdated: new Date().toISOString() });
+        };
+
+        const mergeDataOnLogin = async (uid) => {
+            const dataRef = fb.doc(fb.db, 'artifacts', fb.appId, 'users', uid, 'records');
+            const docSnap = await fb.getDoc(dataRef);
+            if (docSnap.exists()) {
+                const cloudRecords = docSnap.data().records || {};
+                Object.keys(dbData).forEach(date => {
+                    if (!cloudRecords[date]) cloudRecords[date] = dbData[date];
+                    else {
+                        cloudRecords[date] = [...cloudRecords[date], ...dbData[date].filter(local => 
+                            !cloudRecords[date].some(cloud => cloud.item === local.item && cloud.price === local.price)
+                        )];
+                    }
+                });
+                dbData = cloudRecords;
+            }
+            await syncToCloud();
+        };
+
+        // --- 匯出匯入邏輯 ---
+        window.exportToExcel = () => {
+            let csvContent = "\uFEFF日期,店名,品項,金額\n"; 
+            Object.keys(dbData).sort().forEach(date => {
+                dbData[date].forEach(rec => {
+                    csvContent += `${date},${rec.shop},${rec.item},${rec.price}\n`;
+                });
+            });
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `手搖飲紀錄備份_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        };
+
+        window.importFromCSV = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target.result;
+                const rows = text.split('\n').slice(1);
+                rows.forEach(row => {
+                    const [date, shop, item, price] = row.split(',');
+                    if (date && shop && item && price) {
+                        const dKey = date.trim();
+                        if (!dbData[dKey]) dbData[dKey] = [];
+                        const exists = dbData[dKey].some(r => r.shop === shop.trim() && r.item === item.trim() && r.price == price.trim());
+                        if (!exists) {
+                            dbData[dKey].push({ shop: shop.trim(), item: item.trim(), price: price.trim() });
+                        }
+                    }
+                });
+                syncToCloud();
+                renderAll();
+                alert("匯入成功！");
+            };
+            reader.readAsText(file);
+        };
+
+        // --- 主題切換與自定義色碼 ---
+        function adjustColor(hex, amt) {
+            let col = hex.replace('#', '');
+            let num = parseInt(col, 16);
+            let r = (num >> 16) + amt, g = ((num >> 8) & 0x00FF) + amt, b = (num & 0x0000FF) + amt;
+            r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b));
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+
+        window.setTheme = (t) => {
+            let theme;
+            if (themes[t]) {
+                theme = themes[t];
+                localStorage.setItem('drinkApp_theme', t);
+            } else {
+                const hex = t.startsWith('#') ? t : '#' + t;
+                theme = {
+                    primary: hex,
+                    hover: adjustColor(hex, -20),
+                    light: adjustColor(hex, 180),
+                    soft: adjustColor(hex, 240),
+                    dark: adjustColor(hex, -50)
+                };
+                localStorage.setItem('drinkApp_theme', 'custom');
+                localStorage.setItem('drinkApp_custom_color', hex);
+            }
+
+            const s = document.getElementById('themeStyles');
+            s.innerHTML = s.innerHTML.replace(/--primary-color: #[0-9a-fA-F]{6}/, `--primary-color: ${theme.primary}`)
+                                     .replace(/--primary-dark: #[0-9a-fA-F]{6}/, `--primary-dark: ${theme.dark}`);
+            
+            document.querySelectorAll('.theme-dot').forEach(d => d.classList.toggle('active', d.dataset.theme === t));
+        };
+
+        window.applyCustomColor = () => {
+            const val = document.getElementById('customColorInput').value.trim();
+            if (/^#([0-9A-F]{3}){1,2}$/i.test(val)) {
+                setTheme(val);
+            } else {
+                alert("請輸入正確的 Hex 色碼格式 (例如: #FF5733)");
+            }
+        };
+
+        // --- UI 渲染邏輯 ---
+        window.switchPage = (page) => {
+            document.getElementById('page-records').classList.toggle('hidden', page !== 'records');
+            document.getElementById('page-settings').classList.toggle('hidden', page !== 'settings');
+            document.getElementById('nav-records').classList.toggle('active', page === 'records');
+            document.getElementById('nav-settings').classList.toggle('active', page === 'settings');
+            if (page === 'settings') renderAll();
+        };
+
+        window.renderAll = () => {
+            renderCalendar();
+            renderRecords();
+            updateStats();
+            updateYearSelector();
+        };
+
+        window.renderCalendar = () => {
+            const container = document.getElementById('calendarDays');
+            container.innerHTML = '';
+            document.getElementById('currentMonthDisplay').innerText = `${currentYear}年 ${currentMonth + 1}月`;
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            for (let i = 0; i < firstDay; i++) container.innerHTML += `<div></div>`;
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const el = document.createElement('div');
+                el.className = `day-cell ${selectedDate === dStr ? 'active' : ''} ${dbData[dStr] ? 'has-data' : ''}`;
+                el.innerText = d;
+                el.onclick = () => { 
+                    selectedDate = dStr; 
+                    document.getElementById('selectedDateDisplay').innerText = dStr.replace(/-/g,'/'); 
+                    renderAll(); 
+                };
+                container.appendChild(el);
+            }
+        };
+
+        window.renderRecords = () => {
+            const list = document.getElementById('recordList'), empty = document.getElementById('emptyState');
+            const records = dbData[selectedDate] || [];
+            list.innerHTML = '';
+            if (records.length === 0) empty.classList.remove('hidden');
+            else {
+                empty.classList.add('hidden');
+                records.forEach((rec, idx) => {
+                    const card = document.createElement('div');
+                    card.className = "bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50 flex items-center justify-between";
+                    card.innerHTML = `
+                        <div class="grid grid-cols-2 gap-4 flex-grow">
+                            <input type="text" value="${rec.shop}" onchange="updateRec(${idx},'shop',this.value)" placeholder="店名..." class="font-bold outline-none border-b border-transparent focus:border-primary text-sm">
+                            <input type="text" value="${rec.item}" onchange="updateRec(${idx},'item',this.value)" placeholder="品項..." class="font-bold outline-none border-b border-transparent focus:border-primary text-sm">
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <span class="font-black theme-text-primary">$</span>
+                            <input type="number" value="${rec.price}" onchange="updateRec(${idx},'price',this.value)" class="w-16 font-black outline-none bg-transparent text-xl">
+                            <button onclick="deleteRec(${idx})" class="text-gray-300 hover:text-red-400">✕</button>
+                        </div>
+                    `;
+                    list.appendChild(card);
+                });
+            }
+        };
+
+        window.updateRec = (idx, f, v) => { dbData[selectedDate][idx][f] = v; syncToCloud(); renderAll(); };
+        window.deleteRec = (idx) => { 
+            dbData[selectedDate].splice(idx, 1); 
+            if (dbData[selectedDate].length === 0) delete dbData[selectedDate]; 
+            syncToCloud(); 
+            renderAll();
+        };
+
+        document.getElementById('addRecordBtn').onclick = () => {
+            if (!dbData[selectedDate]) dbData[selectedDate] = [];
+            dbData[selectedDate].push({ shop: "", item: "", price: "" });
+            syncToCloud();
+            renderAll();
+        };
+
+        const updateStats = () => {
+            let mTotal = 0, mCount = 0;
+            const preM = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+            Object.keys(dbData).forEach(d => {
+                if (d.startsWith(preM)) {
+                    dbData[d].forEach(r => { mCount++; mTotal += (parseInt(r.price) || 0); });
+                }
+            });
+            document.getElementById('monthCount').innerText = `${mCount}杯`;
+            document.getElementById('monthTotal').innerText = `$${mTotal}`;
+
+            let yTotal = 0, yCount = 0;
+            Object.keys(dbData).forEach(d => {
+                if (d.startsWith(statYear)) {
+                    dbData[d].forEach(r => { yCount++; yTotal += (parseInt(r.price) || 0); });
+                }
+            });
+            document.getElementById('yearTotalDisplay').innerText = `$${yTotal.toLocaleString()}`;
+            document.getElementById('yearCountDisplay').innerText = `${yCount}杯`;
+            document.getElementById('yearAvgDisplay').innerText = `$${Math.round(yTotal/12).toLocaleString()}`;
+        };
+
+        window.updateYearSelector = () => {
+            const s = document.getElementById('yearStatsSelector');
+            const years = Array.from(new Set([currentYear, ...Object.keys(dbData).map(d => parseInt(d.split('-')[0]))])).sort((a,b)=>b-a);
+            s.innerHTML = years.map(y => `<option value="${y}" ${y==statYear?'selected':''}>${y} 年</option>`).join('');
+        };
+
+        window.updateYearlyStats = (y) => { statYear = y; updateStats(); };
+        window.changeMonth = (s) => {
+            currentMonth += s;
+            if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+            renderAll();
+        };
+
+        window.onload = () => {
+            const saved = localStorage.getItem('drinkApp_theme') || 'teal';
+            if (saved === 'custom') setTheme(localStorage.getItem('drinkApp_custom_color'));
+            else setTheme(saved);
+            renderAll();
+            document.getElementById('selectedDateDisplay').innerText = selectedDate.replace(/-/g,'/');
+        };
+    </script>
+</body>
+</html>
+
