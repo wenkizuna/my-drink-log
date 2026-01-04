@@ -3,31 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DrinkLog - 專業手搖飲紀錄器</title>
+    <title>DrinkLog - 本地手搖飲紀錄器</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Firebase 配置 (請在此填入你的 SDK 配置) ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyCBaZLeBLNSRSTmPgLc7BskvsLJ7bgkYuM",
-            authDomain: "my-drink-log.firebaseapp.com",
-            projectId: "my-drink-log",
-            storageBucket: "my-drink-log.firebasestorage.app",
-            messagingSenderId: "90431351664",
-            appId: "1:90431351664:web:c357164c8b88af79f23db5"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const provider = new GoogleAuthProvider();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'drink-tracker-pro-final';
-
-        window.fb = { auth, db, appId, provider, signInWithPopup, signOut, onAuthStateChanged, doc, setDoc, onSnapshot, getDoc, signInWithCustomToken, signInAnonymously };
-    </script>
     <style id="themeStyles">
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         :root { 
@@ -47,12 +24,8 @@
         .nav-link.active { color: var(--primary-color); background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
         .stat-card { background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%); color: white; border-radius: 2rem; }
         .theme-dot { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: 0.2s; }
-        .theme-dot.active { transform: scale(1.1); box-shadow: 0 0 0 2px var(--primary-color); }
         .theme-text-primary { color: var(--primary-color); }
         .bg-primary { background-color: var(--primary-color); }
-        .sync-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 900; }
-        .badge-local { background: #f1f5f9; color: #64748b; }
-        .badge-cloud { background: #dcfce7; color: #166534; }
     </style>
 </head>
 <body class="text-slate-700 min-h-screen pb-12">
@@ -63,7 +36,7 @@
             <span class="text-2xl">🥤</span>
             <div class="flex flex-col">
                 <span class="font-black theme-text-primary text-base leading-none">DrinkLog</span>
-                <span id="syncStatusBadge" class="mt-1 sync-badge badge-local w-fit uppercase">載入中...</span>
+                <span class="mt-1 text-[10px] text-slate-400 font-bold uppercase tracking-wider">本地儲存模式</span>
             </div>
         </div>
         <div class="flex items-center gap-2 bg-gray-100/50 p-1 rounded-2xl">
@@ -141,41 +114,22 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- 帳號同步 -->
+                <!-- 資料工具 -->
                 <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
-                    <h3 class="font-black text-lg mb-2">☁️ 雲端同步</h3>
-                    <div id="loginSection">
-                        <button onclick="loginWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 py-4 rounded-2xl font-bold hover:bg-gray-50 transition">
-                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18">
-                            連結 Google 帳號
-                        </button>
-                    </div>
-                    <div id="userInfoSection" class="hidden space-y-4">
-                        <div class="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
-                            <img id="userAvatar" src="" class="w-12 h-12 rounded-full border-2 border-white">
-                            <div class="flex flex-col">
-                                <span id="userName" class="font-black text-slate-800"></span>
-                                <span id="userEmail" class="text-xs text-slate-400"></span>
-                            </div>
-                        </div>
-                        <button onclick="logout()" class="w-full bg-red-50 text-red-500 py-3 rounded-xl font-bold text-xs hover:bg-red-100 transition">登出帳號</button>
-                    </div>
-                </div>
-
-                <!-- 工具 -->
-                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
-                    <h3 class="font-black text-lg mb-4">💾 資料工具</h3>
+                    <h3 class="font-black text-lg mb-4">💾 資料管理</h3>
+                    <p class="text-xs text-slate-400 mb-4 font-bold">資料儲存於此瀏覽器。如需更換裝置，請使用匯出功能。</p>
                     <div class="space-y-3">
                         <button onclick="exportToCSV()" class="w-full bg-emerald-50 text-emerald-600 py-4 rounded-2xl font-bold text-sm hover:bg-emerald-100 transition">📊 匯出 Excel (CSV)</button>
                         <input type="file" id="importInput" accept=".csv" class="hidden" onchange="importFromCSV(event)">
                         <button onclick="document.getElementById('importInput').click()" class="w-full bg-blue-50 text-blue-600 py-4 rounded-2xl font-bold text-sm hover:bg-blue-100 transition">📥 匯入資料 (CSV)</button>
+                        <button onclick="clearAllData()" class="w-full bg-red-50 text-red-400 py-4 rounded-2xl font-bold text-sm hover:bg-red-100 transition">⚠️ 清除所有資料</button>
                     </div>
                 </div>
 
                 <!-- 色碼自定義區 -->
-                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 md:col-span-2 space-y-6">
+                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-6">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <h3 class="font-black text-lg">🎨 介面主題與自定義色碼</h3>
+                        <h3 class="font-black text-lg">🎨 介面主題色碼</h3>
                         <div class="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl">
                             <span class="text-xs font-bold text-slate-400">輸入色碼</span>
                             <div class="flex items-center gap-2">
@@ -197,10 +151,8 @@
         </div>
     </div>
 
-    <script type="module">
-        const { auth, db, appId, provider, signInWithPopup, signOut, onAuthStateChanged, doc, setDoc, onSnapshot, getDoc, signInWithCustomToken, signInAnonymously } = window.fb;
-
-        let user = null;
+    <script>
+        // 初始化本地資料
         let dbData = JSON.parse(localStorage.getItem('drink_logs_v3')) || {};
         let currentYear = new Date().getFullYear();
         let currentMonth = new Date().getMonth();
@@ -208,56 +160,8 @@
         let statYear = currentYear;
         let currentThemeColor = localStorage.getItem('drink_theme_color') || '#00897b';
 
-        // 初始化 Auth (優先使用 Token, 否則匿名)
-        const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
-            }
-        };
-        initAuth();
-
-        onAuthStateChanged(auth, (u) => {
-            user = u;
-            const badge = document.getElementById('syncStatusBadge');
-            if (u && !u.isAnonymous) {
-                badge.innerText = "Cloud Sync Active";
-                badge.className = "mt-1 sync-badge badge-cloud w-fit uppercase";
-                document.getElementById('loginSection').classList.add('hidden');
-                document.getElementById('userInfoSection').classList.remove('hidden');
-                document.getElementById('userName').innerText = u.displayName || '使用者';
-                document.getElementById('userEmail').innerText = u.email;
-                document.getElementById('userAvatar').src = u.photoURL || 'https://via.placeholder.com/150';
-
-                // 監聽雲端紀錄
-                const docRef = doc(db, 'artifacts', appId, 'users', u.uid, 'settings');
-                onSnapshot(docRef, (snap) => {
-                    if (snap.exists()) {
-                        dbData = snap.data().records || {};
-                        localStorage.setItem('drink_logs_v3', JSON.stringify(dbData));
-                        renderAll();
-                    }
-                }, (err) => console.error("Firestore Error:", err));
-            } else {
-                badge.innerText = "Local Mode";
-                badge.className = "mt-1 sync-badge badge-local w-fit uppercase";
-                document.getElementById('loginSection').classList.remove('hidden');
-                document.getElementById('userInfoSection').classList.add('hidden');
-            }
-            renderAll();
-        });
-
-        window.loginWithGoogle = async () => {
-            try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
-        };
-        window.logout = () => signOut(auth);
-
-        const saveData = async () => {
+        const saveData = () => {
             localStorage.setItem('drink_logs_v3', JSON.stringify(dbData));
-            if (user && !user.isAnonymous) {
-                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings'), { records: dbData });
-            }
         };
 
         // --- 色碼控制 ---
@@ -282,7 +186,7 @@
             setCustomColor(themes[t]);
         };
 
-        // --- 匯出匯入 ---
+        // --- 匯出匯入與管理 ---
         window.exportToCSV = () => {
             let csv = "\uFEFF日期,店名,品項,金額\n";
             Object.keys(dbData).sort().forEach(d => {
@@ -306,9 +210,17 @@
                         dbData[d].push({ shop: s, item: i, price: parseInt(p) || 0 });
                     }
                 });
-                saveData(); renderAll(); alert("匯入成功");
+                saveData(); renderAll(); alert("匯入成功！");
             };
             if(e.target.files[0]) reader.readAsText(e.target.files[0]);
+        };
+
+        window.clearAllData = () => {
+            if (confirm("確定要刪除所有紀錄嗎？這項動作無法復原！建議先匯出備份。")) {
+                dbData = {};
+                saveData();
+                renderAll();
+            }
         };
 
         // --- 核心渲染 ---
@@ -343,7 +255,7 @@
                 empty.classList.add('hidden');
                 records.forEach((rec, idx) => {
                     const card = document.createElement('div');
-                    card.className = "bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50 flex items-center justify-between";
+                    card.className = "bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50 flex items-center justify-between animate-in fade-in slide-in-from-bottom-2";
                     card.innerHTML = `
                         <div class="grid grid-cols-2 gap-4 flex-grow">
                             <input type="text" value="${rec.shop}" onchange="updateRecord(${idx},'shop',this.value)" placeholder="店名" class="font-bold outline-none border-b border-transparent focus:border-primary text-sm bg-transparent">
@@ -352,16 +264,29 @@
                         <div class="flex items-center gap-4 ml-4">
                             <span class="font-black theme-text-primary">$</span>
                             <input type="number" value="${rec.price}" onchange="updateRecord(${idx},'price',this.value)" class="w-16 font-black outline-none bg-transparent text-xl text-right">
-                            <button onclick="deleteRecord(${idx})" class="text-gray-200">✕</button>
+                            <button onclick="deleteRecord(${idx})" class="text-gray-200 hover:text-red-400">✕</button>
                         </div>`;
                     list.appendChild(card);
                 });
             }
         };
 
-        window.updateRecord = (idx, f, v) => { dbData[selectedDate][idx][f] = f==='price'?parseInt(v)||0:v; saveData(); updateStats(); };
-        window.deleteRecord = (idx) => { dbData[selectedDate].splice(idx, 1); if(!dbData[selectedDate].length) delete dbData[selectedDate]; saveData(); renderAll(); };
-        document.getElementById('addRecordBtn').onclick = () => { if(!dbData[selectedDate]) dbData[selectedDate]=[]; dbData[selectedDate].push({shop:'', item:'', price:0}); renderRecords(); saveData(); };
+        window.updateRecord = (idx, f, v) => { 
+            dbData[selectedDate][idx][f] = f==='price'?parseInt(v)||0:v; 
+            saveData(); updateStats(); 
+        };
+
+        window.deleteRecord = (idx) => { 
+            dbData[selectedDate].splice(idx, 1); 
+            if(!dbData[selectedDate].length) delete dbData[selectedDate]; 
+            saveData(); renderAll(); 
+        };
+
+        document.getElementById('addRecordBtn').onclick = () => { 
+            if(!dbData[selectedDate]) dbData[selectedDate]=[]; 
+            dbData[selectedDate].push({shop:'', item:'', price:0}); 
+            renderRecords(); saveData(); 
+        };
 
         const updateStats = () => {
             let mTotal = 0, mCount = 0, yTotal = 0, yCount = 0;
