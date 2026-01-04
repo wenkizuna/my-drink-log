@@ -10,8 +10,13 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Config
-        const firebaseConfig = {
+        // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
   apiKey: "AIzaSyCBaZLeBLNSRSTmPgLc7BskvsLJ7bgkYuM",
   authDomain: "my-drink-log.firebaseapp.com",
   projectId: "my-drink-log",
@@ -19,11 +24,9 @@
   messagingSenderId: "90431351664",
   appId: "1:90431351664:web:c357164c8b88af79f23db5"
 };
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const provider = new GoogleAuthProvider();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'drink-tracker-custom-color';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
         window.fb = { auth, db, appId, provider, signInWithPopup, signOut, onAuthStateChanged, doc, setDoc, onSnapshot, getDoc, signInWithCustomToken, signInAnonymously };
     </script>
