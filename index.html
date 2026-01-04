@@ -11,7 +11,14 @@
         import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase Config
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseConfig = {
+  apiKey: "AIzaSyCBaZLeBLNSRSTmPgLc7BskvsLJ7bgkYuM",
+  authDomain: "my-drink-log.firebaseapp.com",
+  projectId: "my-drink-log",
+  storageBucket: "my-drink-log.firebasestorage.app",
+  messagingSenderId: "90431351664",
+  appId: "1:90431351664:web:c357164c8b88af79f23db5"
+};
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
